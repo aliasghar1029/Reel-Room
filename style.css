@@ -26,6 +26,8 @@
 
 *{ box-sizing:border-box; }
 html,body{ height:100%; }
+/* Guarantee [hidden] always wins over any class-based display rule below */
+[hidden]{ display:none !important; }
 body{
   margin:0;
   font-family:var(--font-body);
