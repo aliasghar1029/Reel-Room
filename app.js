@@ -37,22 +37,28 @@ window.addEventListener("load", () => {
   });
 
   document.getElementById("google-signin-btn").addEventListener("click", () => {
+    state.isSilentAttempt = false;
     state.tokenClient.requestAccessToken({ prompt: "consent" });
   });
 
-  // Try a silent re-login if the browser remembers this Google session
-  if (sessionStorage.getItem("rr_logged_in") === "1") {
+  // Try a silent re-login if the browser remembers this Google session.
+  // Uses localStorage (not sessionStorage) so this works even after the
+  // browser was fully closed and reopened, not just within one tab.
+  if (localStorage.getItem("rr_logged_in") === "1") {
+    state.isSilentAttempt = true;
     state.tokenClient.requestAccessToken({ prompt: "" });
   }
 });
 
 async function onTokenReceived(resp) {
   if (resp.error) {
-    toast("Sign-in failed: " + resp.error, "error");
+    // A failed silent attempt just means: show the normal login screen,
+    // no need to alarm the user with an error toast.
+    if (!state.isSilentAttempt) toast("Sign-in failed: " + resp.error, "error");
     return;
   }
   state.accessToken = resp.access_token;
-  sessionStorage.setItem("rr_logged_in", "1");
+  localStorage.setItem("rr_logged_in", "1");
   document.getElementById("login-screen").hidden = true;
   document.getElementById("app").hidden = false;
   await fetchAccountInfo();
@@ -72,7 +78,7 @@ async function fetchAccountInfo() {
 
 document.getElementById("signout-btn").addEventListener("click", () => {
   if (state.accessToken) google.accounts.oauth2.revoke(state.accessToken, () => {});
-  sessionStorage.removeItem("rr_logged_in");
+  localStorage.removeItem("rr_logged_in");
   location.reload();
 });
 
