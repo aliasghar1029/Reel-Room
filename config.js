@@ -6,7 +6,7 @@
 
 const CONFIG = {
   // Paste your OAuth 2.0 Web Client ID here (ends with .apps.googleusercontent.com)
-  CLIENT_ID: "PASTE_YOUR_GOOGLE_CLIENT_ID_HERE.apps.googleusercontent.com",
+  CLIENT_ID: "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",
 
   // Drive scope: app can only see/edit files IT creates — it can never
   // browse or read the rest of your Google Drive.
