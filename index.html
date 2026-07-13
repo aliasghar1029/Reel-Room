@@ -71,6 +71,7 @@
         <button class="tab-btn active" data-tab="ideas">Ideas</button>
         <button class="tab-btn" data-tab="master">Master Prompt</button>
         <button class="tab-btn" data-tab="uploaded">Uploaded Reels</button>
+        <button class="tab-btn" data-tab="tables">Custom Tables</button>
       </nav>
 
       <!-- IDEAS TAB -->
@@ -131,6 +132,15 @@
           </table>
           <div id="uploaded-empty" class="table-empty" hidden>Nothing uploaded yet — tick "Uploaded" on an idea to move it here.</div>
         </div>
+      </section>
+
+      <!-- CUSTOM TABLES TAB (fully user-defined headings & content) -->
+      <section id="tab-tables" class="tab-panel" hidden>
+        <div class="panel-toolbar">
+          <span class="panel-count">Build your own table — any headings, any content</span>
+          <button id="add-table-btn" class="btn-primary">+ New table</button>
+        </div>
+        <div id="custom-tables-list" class="custom-tables-list"></div>
       </section>
     </div>
   </main>
