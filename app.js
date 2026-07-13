@@ -248,6 +248,7 @@ document.getElementById("add-page-btn").addEventListener("click", () => {
     masterPrompt: "",
     ideaCounter: 0,
     ideas: [],
+    customTables: [],
   };
   state.data.pages.push(page);
   state.currentPageId = page.id;
@@ -315,6 +316,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     document.querySelectorAll(".tab-panel").forEach((p) => (p.hidden = true));
     document.getElementById("tab-" + btn.dataset.tab).hidden = false;
     if (btn.dataset.tab === "uploaded") renderUploadedTable();
+    if (btn.dataset.tab === "tables") renderCustomTables();
   });
 });
 
@@ -329,8 +331,10 @@ function renderCurrentView() {
 
   document.getElementById("page-title-display").textContent = page.name;
   document.getElementById("master-prompt-input").value = page.masterPrompt || "";
+  if (!page.customTables) page.customTables = [];
   renderIdeasTable();
   renderUploadedTable();
+  renderCustomTables();
 }
 
 function renderIdeasTable() {
@@ -547,3 +551,158 @@ document.getElementById("modal-save").addEventListener("click", async () => {
     progress.hidden = true;
   }
 });
+
+// ---------------------------------------------------------------
+// CUSTOM TABLES — fully user-defined headings & content
+// ---------------------------------------------------------------
+document.getElementById("add-table-btn").addEventListener("click", () => {
+  const page = currentPage();
+  if (!page) return;
+  const name = prompt("Name this table:", "Untitled Table");
+  if (!name || !name.trim()) return;
+  if (!page.customTables) page.customTables = [];
+  const table = {
+    id: uid(),
+    name: name.trim(),
+    columns: [
+      { id: uid(), label: "Column 1" },
+      { id: uid(), label: "Column 2" },
+    ],
+    rows: [],
+  };
+  page.customTables.push(table);
+  queueSave();
+  renderCustomTables();
+});
+
+function renderCustomTables() {
+  const page = currentPage();
+  const wrap = document.getElementById("custom-tables-list");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  if (!page) return;
+  if (!page.customTables) page.customTables = [];
+  if (!page.customTables.length) {
+    wrap.innerHTML = `<div class="table-empty">No custom tables yet — click "+ New table" above to build one.</div>`;
+    return;
+  }
+  page.customTables.forEach((table) => wrap.appendChild(buildCustomTableCard(table, page)));
+}
+
+function buildCustomTableCard(table, page) {
+  const card = document.createElement("div");
+  card.className = "custom-table-card";
+
+  const header = document.createElement("div");
+  header.className = "custom-table-header";
+  header.innerHTML = `
+    <input class="custom-table-name" value="${escapeHtml(table.name)}" title="Table name">
+    <div class="custom-table-actions">
+      <button class="btn-ghost add-col-btn">+ Column</button>
+      <button class="btn-ghost add-row-btn">+ Row</button>
+      <button class="icon-btn danger del-table-btn" title="Delete this table">🗑</button>
+    </div>`;
+  card.appendChild(header);
+
+  header.querySelector(".custom-table-name").addEventListener("change", (e) => {
+    table.name = e.target.value.trim() || "Untitled Table";
+    queueSave();
+  });
+  header.querySelector(".add-col-btn").addEventListener("click", () => {
+    const label = prompt("New column heading:", "New Column");
+    if (!label || !label.trim()) return;
+    table.columns.push({ id: uid(), label: label.trim() });
+    table.rows.forEach((r) => (r.cells[table.columns[table.columns.length - 1].id] = ""));
+    queueSave();
+    renderCustomTables();
+  });
+  header.querySelector(".add-row-btn").addEventListener("click", () => {
+    const cells = {};
+    table.columns.forEach((c) => (cells[c.id] = ""));
+    table.rows.push({ id: uid(), cells });
+    queueSave();
+    renderCustomTables();
+  });
+  header.querySelector(".del-table-btn").addEventListener("click", () => {
+    if (!confirm(`Delete table "${table.name}"? This can't be undone.`)) return;
+    page.customTables = page.customTables.filter((t) => t.id !== table.id);
+    queueSave();
+    renderCustomTables();
+  });
+
+  const tableWrap = document.createElement("div");
+  tableWrap.className = "table-wrap";
+  const tableEl = document.createElement("table");
+  tableEl.className = "reel-table custom-table";
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  table.columns.forEach((col) => {
+    const th = document.createElement("th");
+    th.innerHTML = `<div class="col-head">
+        <input class="col-label-input" value="${escapeHtml(col.label)}">
+        <button class="col-del-btn" title="Remove this column">×</button>
+      </div>`;
+    th.querySelector(".col-label-input").addEventListener("change", (e) => {
+      col.label = e.target.value.trim() || "Column";
+      queueSave();
+    });
+    th.querySelector(".col-del-btn").addEventListener("click", () => {
+      if (table.columns.length <= 1) { toast("A table needs at least one column.", "error"); return; }
+      table.columns = table.columns.filter((c) => c.id !== col.id);
+      table.rows.forEach((r) => delete r.cells[col.id]);
+      queueSave();
+      renderCustomTables();
+    });
+    headRow.appendChild(th);
+  });
+  headRow.appendChild(document.createElement("th")).className = "col-actions";
+  thead.appendChild(headRow);
+  tableEl.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  if (!table.rows.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = table.columns.length + 1;
+    td.className = "table-empty";
+    td.textContent = 'No rows yet — click "+ Row" above to add one.';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    table.rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      table.columns.forEach((col) => {
+        const td = document.createElement("td");
+        const cellInput = document.createElement("textarea");
+        cellInput.className = "cell-input";
+        cellInput.rows = 1;
+        cellInput.value = row.cells[col.id] || "";
+        cellInput.addEventListener("input", () => {
+          cellInput.style.height = "auto";
+          cellInput.style.height = cellInput.scrollHeight + "px";
+        });
+        cellInput.addEventListener("change", (e) => {
+          row.cells[col.id] = e.target.value;
+          queueSave();
+        });
+        td.appendChild(cellInput);
+        tr.appendChild(td);
+      });
+      const tdActions = document.createElement("td");
+      tdActions.className = "row-actions";
+      tdActions.innerHTML = `<button class="icon-btn danger del-row-btn" title="Delete row">🗑</button>`;
+      tdActions.querySelector(".del-row-btn").addEventListener("click", () => {
+        table.rows = table.rows.filter((r) => r.id !== row.id);
+        queueSave();
+        renderCustomTables();
+      });
+      tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    });
+  }
+  tableEl.appendChild(tbody);
+  tableWrap.appendChild(tableEl);
+  card.appendChild(tableWrap);
+  return card;
+}
