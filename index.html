@@ -1,6 +1,14 @@
 <!doctype html>
 <html lang="en">
 <head>
+<script>
+  (function(){
+    try {
+      var t = localStorage.getItem('rr_theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    } catch(e){}
+  })();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Reel Room — Content Pipeline</title>
@@ -10,6 +18,8 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<button id="theme-toggle-btn" class="theme-toggle-fab" title="Toggle light / dark mode">🌙</button>
 
 <!-- ===== LOGIN SCREEN ===== -->
 <div id="login-screen" class="login-screen">
@@ -39,6 +49,11 @@
     <div id="page-list" class="page-list"></div>
 
     <div class="sidebar-footer">
+      <button id="theme-toggle-btn" class="theme-toggle" title="Switch theme">
+        <span class="theme-icon-dark">🌙</span>
+        <span class="theme-icon-light">☀️</span>
+        <span id="theme-toggle-label">Dark mode</span>
+      </button>
       <div id="drive-status" class="drive-status">Syncing to Drive…</div>
       <div class="account-row">
         <img id="account-avatar" class="account-avatar" alt="">
@@ -181,6 +196,19 @@
     <div class="modal-actions">
       <button id="modal-cancel" class="btn-ghost">Cancel</button>
       <button id="modal-save" class="btn-primary">Save idea</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== GENERIC PROMPT/CONFIRM MODAL (replaces native browser popups) ===== -->
+<div id="generic-modal" class="modal" hidden>
+  <div class="modal-card small">
+    <h3 id="generic-modal-title">Title</h3>
+    <p id="generic-modal-message" class="generic-modal-message" hidden></p>
+    <input id="generic-modal-input" type="text" hidden>
+    <div class="modal-actions">
+      <button id="generic-modal-cancel" class="btn-ghost">Cancel</button>
+      <button id="generic-modal-confirm" class="btn-primary">OK</button>
     </div>
   </div>
 </div>
