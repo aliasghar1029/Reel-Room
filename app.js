@@ -6,6 +6,95 @@
 // The app only ever touches files it created (drive.file scope).
 // =====================================================================
 
+// ---------------------------------------------------------------
+// THEME (light / dark) — persisted, both premium
+// ---------------------------------------------------------------
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  const btn = document.getElementById("theme-toggle-btn");
+  if (btn) btn.textContent = theme === "light" ? "☀️" : "🌙";
+  try { localStorage.setItem("rr_theme", theme); } catch (e) {}
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const current = document.documentElement.getAttribute("data-theme") || "dark";
+  applyTheme(current);
+  const toggleBtn = document.getElementById("theme-toggle-btn");
+  if (toggleBtn) {
+    toggleBtn.addEventListener("click", () => {
+      const now = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+      applyTheme(now);
+    });
+  }
+});
+
+// ---------------------------------------------------------------
+// GENERIC PROMPT / CONFIRM MODAL — replaces native browser popups
+// ---------------------------------------------------------------
+function showPrompt({ title, placeholder = "", defaultValue = "", confirmLabel = "Save" }) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("generic-modal");
+    const input = document.getElementById("generic-modal-input");
+    const msg = document.getElementById("generic-modal-message");
+    const confirmBtn = document.getElementById("generic-modal-confirm");
+    const cancelBtn = document.getElementById("generic-modal-cancel");
+
+    document.getElementById("generic-modal-title").textContent = title;
+    msg.hidden = true;
+    input.hidden = false;
+    input.placeholder = placeholder;
+    input.value = defaultValue;
+    confirmBtn.textContent = confirmLabel;
+    confirmBtn.classList.remove("btn-danger-solid");
+    modal.hidden = false;
+    setTimeout(() => { input.focus(); input.select(); }, 60);
+
+    function cleanup() {
+      modal.hidden = true;
+      confirmBtn.removeEventListener("click", onConfirm);
+      cancelBtn.removeEventListener("click", onCancel);
+      input.removeEventListener("keydown", onKey);
+    }
+    function onConfirm() { const v = input.value.trim(); cleanup(); resolve(v || null); }
+    function onCancel() { cleanup(); resolve(null); }
+    function onKey(e) { if (e.key === "Enter") onConfirm(); if (e.key === "Escape") onCancel(); }
+
+    confirmBtn.addEventListener("click", onConfirm);
+    cancelBtn.addEventListener("click", onCancel);
+    input.addEventListener("keydown", onKey);
+  });
+}
+
+function showConfirm({ title, message, danger = false, confirmLabel }) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("generic-modal");
+    const input = document.getElementById("generic-modal-input");
+    const msg = document.getElementById("generic-modal-message");
+    const confirmBtn = document.getElementById("generic-modal-confirm");
+    const cancelBtn = document.getElementById("generic-modal-cancel");
+
+    document.getElementById("generic-modal-title").textContent = title;
+    msg.textContent = message;
+    msg.hidden = false;
+    input.hidden = true;
+    confirmBtn.textContent = confirmLabel || (danger ? "Delete" : "Confirm");
+    confirmBtn.classList.toggle("btn-danger-solid", danger);
+    modal.hidden = false;
+
+    function cleanup() {
+      modal.hidden = true;
+      confirmBtn.removeEventListener("click", onConfirm);
+      cancelBtn.removeEventListener("click", onCancel);
+      confirmBtn.classList.remove("btn-danger-solid");
+    }
+    function onConfirm() { cleanup(); resolve(true); }
+    function onCancel() { cleanup(); resolve(false); }
+
+    confirmBtn.addEventListener("click", onConfirm);
+    cancelBtn.addEventListener("click", onCancel);
+  });
+}
+
 const DRIVE_FILES = "https://www.googleapis.com/drive/v3/files";
 const DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
 
@@ -238,9 +327,9 @@ function escapeHtml(s) {
 // ---------------------------------------------------------------
 // PAGE LIST / SIDEBAR
 // ---------------------------------------------------------------
-document.getElementById("add-page-btn").addEventListener("click", () => {
-  const name = prompt("Name this Facebook page:");
-  if (!name || !name.trim()) return;
+document.getElementById("add-page-btn").addEventListener("click", async () => {
+  const name = await showPrompt({ title: "Name this Facebook page", placeholder: "e.g. Crash Craze", confirmLabel: "Add page" });
+  if (!name) return;
   const page = {
     id: uid(),
     name: name.trim(),
@@ -284,21 +373,26 @@ document.getElementById("sidebar-toggle").addEventListener("click", () => {
   document.getElementById("sidebar").classList.toggle("open");
 });
 
-document.getElementById("rename-page-btn").addEventListener("click", () => {
+document.getElementById("rename-page-btn").addEventListener("click", async () => {
   const page = currentPage();
   if (!page) return;
-  const name = prompt("Rename page:", page.name);
-  if (!name || !name.trim()) return;
-  page.name = name.trim();
+  const name = await showPrompt({ title: "Rename page", defaultValue: page.name, confirmLabel: "Save" });
+  if (!name) return;
+  page.name = name;
   queueSave();
   renderPageList();
   renderCurrentView();
 });
 
-document.getElementById("delete-page-btn").addEventListener("click", () => {
+document.getElementById("delete-page-btn").addEventListener("click", async () => {
   const page = currentPage();
   if (!page) return;
-  if (!confirm(`Delete "${page.name}" and all its ideas? This can't be undone.`)) return;
+  const ok = await showConfirm({
+    title: "Delete this page?",
+    message: `"${page.name}" and all its ideas will be permanently deleted. This can't be undone.`,
+    danger: true,
+  });
+  if (!ok) return;
   state.data.pages = state.data.pages.filter((p) => p.id !== page.id);
   state.currentPageId = null;
   queueSave();
@@ -403,7 +497,8 @@ function buildIdeaRow(idea, page, isUploadedView) {
 
   tr.querySelector(".edit-btn").addEventListener("click", () => openIdeaModal(idea));
   tr.querySelector(".del-btn").addEventListener("click", async () => {
-    if (!confirm(`Delete idea "${idea.title}"?`)) return;
+    const ok = await showConfirm({ title: "Delete this idea?", message: `"${idea.title}" will be permanently removed, along with its thumbnail and video.`, danger: true });
+    if (!ok) return;
     await deleteFile(idea.thumbFileId);
     await deleteFile(idea.videoFileId);
     page.ideas = page.ideas.filter((i) => i.id !== idea.id);
@@ -554,16 +649,18 @@ document.getElementById("modal-save").addEventListener("click", async () => {
 
 // ---------------------------------------------------------------
 // CUSTOM TABLES — fully user-defined headings & content
+// Each row has a "Used" checkbox — ticking it draws a strikethrough
+// through that row's content (mirrors the Ideas -> Uploaded pattern).
 // ---------------------------------------------------------------
-document.getElementById("add-table-btn").addEventListener("click", () => {
+document.getElementById("add-table-btn").addEventListener("click", async () => {
   const page = currentPage();
   if (!page) return;
-  const name = prompt("Name this table:", "Untitled Table");
-  if (!name || !name.trim()) return;
+  const name = await showPrompt({ title: "Name this table", defaultValue: "Untitled Table", confirmLabel: "Create table" });
+  if (!name) return;
   if (!page.customTables) page.customTables = [];
   const table = {
     id: uid(),
-    name: name.trim(),
+    name,
     columns: [
       { id: uid(), label: "Column 1" },
       { id: uid(), label: "Column 2" },
@@ -608,23 +705,25 @@ function buildCustomTableCard(table, page) {
     table.name = e.target.value.trim() || "Untitled Table";
     queueSave();
   });
-  header.querySelector(".add-col-btn").addEventListener("click", () => {
-    const label = prompt("New column heading:", "New Column");
-    if (!label || !label.trim()) return;
-    table.columns.push({ id: uid(), label: label.trim() });
-    table.rows.forEach((r) => (r.cells[table.columns[table.columns.length - 1].id] = ""));
+  header.querySelector(".add-col-btn").addEventListener("click", async () => {
+    const label = await showPrompt({ title: "New column heading", defaultValue: "New Column", confirmLabel: "Add column" });
+    if (!label) return;
+    const col = { id: uid(), label };
+    table.columns.push(col);
+    table.rows.forEach((r) => (r.cells[col.id] = ""));
     queueSave();
     renderCustomTables();
   });
   header.querySelector(".add-row-btn").addEventListener("click", () => {
     const cells = {};
     table.columns.forEach((c) => (cells[c.id] = ""));
-    table.rows.push({ id: uid(), cells });
+    table.rows.push({ id: uid(), cells, done: false });
     queueSave();
     renderCustomTables();
   });
-  header.querySelector(".del-table-btn").addEventListener("click", () => {
-    if (!confirm(`Delete table "${table.name}"? This can't be undone.`)) return;
+  header.querySelector(".del-table-btn").addEventListener("click", async () => {
+    const ok = await showConfirm({ title: "Delete this table?", message: `"${table.name}" and everything in it will be permanently deleted.`, danger: true });
+    if (!ok) return;
     page.customTables = page.customTables.filter((t) => t.id !== table.id);
     queueSave();
     renderCustomTables();
@@ -647,8 +746,10 @@ function buildCustomTableCard(table, page) {
       col.label = e.target.value.trim() || "Column";
       queueSave();
     });
-    th.querySelector(".col-del-btn").addEventListener("click", () => {
+    th.querySelector(".col-del-btn").addEventListener("click", async () => {
       if (table.columns.length <= 1) { toast("A table needs at least one column.", "error"); return; }
+      const ok = await showConfirm({ title: "Remove this column?", message: `"${col.label}" will be removed from every row.`, danger: true });
+      if (!ok) return;
       table.columns = table.columns.filter((c) => c.id !== col.id);
       table.rows.forEach((r) => delete r.cells[col.id]);
       queueSave();
@@ -656,6 +757,10 @@ function buildCustomTableCard(table, page) {
     });
     headRow.appendChild(th);
   });
+  const usedTh = document.createElement("th");
+  usedTh.className = "col-done";
+  usedTh.textContent = "Used";
+  headRow.appendChild(usedTh);
   headRow.appendChild(document.createElement("th")).className = "col-actions";
   thead.appendChild(headRow);
   tableEl.appendChild(thead);
@@ -664,7 +769,7 @@ function buildCustomTableCard(table, page) {
   if (!table.rows.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = table.columns.length + 1;
+    td.colSpan = table.columns.length + 2;
     td.className = "table-empty";
     td.textContent = 'No rows yet — click "+ Row" above to add one.';
     tr.appendChild(td);
@@ -672,6 +777,8 @@ function buildCustomTableCard(table, page) {
   } else {
     table.rows.forEach((row) => {
       const tr = document.createElement("tr");
+      if (row.done) tr.classList.add("done");
+
       table.columns.forEach((col) => {
         const td = document.createElement("td");
         const cellInput = document.createElement("textarea");
@@ -689,10 +796,27 @@ function buildCustomTableCard(table, page) {
         td.appendChild(cellInput);
         tr.appendChild(td);
       });
+
+      const usedTd = document.createElement("td");
+      usedTd.className = "col-done";
+      const usedCheckbox = document.createElement("input");
+      usedCheckbox.type = "checkbox";
+      usedCheckbox.className = "check-toggle";
+      usedCheckbox.checked = !!row.done;
+      usedCheckbox.addEventListener("change", () => {
+        row.done = usedCheckbox.checked;
+        queueSave();
+        tr.classList.toggle("done", row.done);
+      });
+      usedTd.appendChild(usedCheckbox);
+      tr.appendChild(usedTd);
+
       const tdActions = document.createElement("td");
       tdActions.className = "row-actions";
       tdActions.innerHTML = `<button class="icon-btn danger del-row-btn" title="Delete row">🗑</button>`;
-      tdActions.querySelector(".del-row-btn").addEventListener("click", () => {
+      tdActions.querySelector(".del-row-btn").addEventListener("click", async () => {
+        const ok = await showConfirm({ title: "Delete this row?", message: "This row will be permanently removed.", danger: true });
+        if (!ok) return;
         table.rows = table.rows.filter((r) => r.id !== row.id);
         queueSave();
         renderCustomTables();
