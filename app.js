@@ -102,7 +102,8 @@ const state = {
   tokenClient: null,
   accessToken: null,
   folderId: null,
-  mediaFolderId: null,
+  pendingFolderId: null,
+  uploadedFolderId: null,
   dataFileId: null,
   data: { pages: [] },
   currentPageId: null,
@@ -178,7 +179,8 @@ async function bootstrapDrive() {
   setDriveStatus("Connecting to Drive…");
   try {
     state.folderId = await findOrCreateFolder(CONFIG.APP_FOLDER_NAME, "root");
-    state.mediaFolderId = await findOrCreateFolder("media", state.folderId);
+    state.pendingFolderId = await findOrCreateFolder("Pending Reels", state.folderId);
+    state.uploadedFolderId = await findOrCreateFolder("Uploaded Reels", state.folderId);
     state.dataFileId = await findOrCreateDataFile();
     state.data = await loadData();
     if (!Array.isArray(state.data.pages)) state.data.pages = [];
@@ -273,8 +275,8 @@ async function saveDataNow() {
   }
 }
 
-async function uploadMedia(file) {
-  const metadata = { name: `${Date.now()}_${file.name}`, parents: [state.mediaFolderId] };
+async function uploadMedia(file, folderId) {
+  const metadata = { name: `${Date.now()}_${file.name}`, parents: [folderId] };
   const form = new FormData();
   form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
   form.append("file", file);
@@ -283,6 +285,27 @@ async function uploadMedia(file) {
     body: form,
   });
   return await res.json(); // {id, webViewLink, mimeType}
+}
+
+async function moveFileBetweenFolders(fileId, fromFolderId, toFolderId) {
+  if (!fileId) return;
+  try {
+    await driveFetch(
+      `${DRIVE_FILES}/${fileId}?addParents=${toFolderId}&removeParents=${fromFolderId}&fields=id,parents`,
+      { method: "PATCH" }
+    );
+  } catch (e) {
+    console.error("Could not move file in Drive:", e);
+  }
+}
+
+async function moveIdeaMedia(idea, toUploaded) {
+  const from = toUploaded ? state.pendingFolderId : state.uploadedFolderId;
+  const to = toUploaded ? state.uploadedFolderId : state.pendingFolderId;
+  await Promise.all([
+    moveFileBetweenFolders(idea.thumbFileId, from, to),
+    moveFileBetweenFolders(idea.videoFileId, from, to),
+  ]);
 }
 
 async function deleteFile(fileId) {
@@ -485,13 +508,19 @@ function buildIdeaRow(idea, page, isUploadedView) {
 
   const checkbox = tr.querySelector(".check-toggle");
   if (checkbox) {
-    checkbox.addEventListener("change", () => {
-      idea.uploaded = checkbox.checked;
-      idea.uploadedAt = checkbox.checked ? new Date().toISOString().slice(0, 10) : null;
+    checkbox.addEventListener("change", async () => {
+      const newVal = checkbox.checked;
+      idea.uploaded = newVal;
+      idea.uploadedAt = newVal ? new Date().toISOString().slice(0, 10) : null;
       queueSave();
       renderIdeasTable();
       renderUploadedTable();
       renderPageList();
+      if (idea.thumbFileId || idea.videoFileId) {
+        setDriveStatus("Moving files in Drive…");
+        await moveIdeaMedia(idea, newVal);
+        setDriveStatus("Synced ✓");
+      }
     });
   }
 
@@ -615,11 +644,13 @@ document.getElementById("modal-save").addEventListener("click", async () => {
     idea.hashtags = document.getElementById("f-hashtags").value.trim();
     idea.date = document.getElementById("f-date").value;
 
+    const targetFolder = idea.uploaded ? state.uploadedFolderId : state.pendingFolderId;
+
     if (pendingThumbFile) {
       progress.hidden = false;
       progress.textContent = "Uploading thumbnail…";
       if (idea.thumbFileId) await deleteFile(idea.thumbFileId);
-      const uploaded = await uploadMedia(pendingThumbFile);
+      const uploaded = await uploadMedia(pendingThumbFile, targetFolder);
       idea.thumbFileId = uploaded.id;
       state.blobCache.delete(uploaded.id);
     }
@@ -627,7 +658,7 @@ document.getElementById("modal-save").addEventListener("click", async () => {
       progress.hidden = false;
       progress.textContent = "Uploading video…";
       if (idea.videoFileId) await deleteFile(idea.videoFileId);
-      const uploaded = await uploadMedia(pendingVideoFile);
+      const uploaded = await uploadMedia(pendingVideoFile, targetFolder);
       idea.videoFileId = uploaded.id;
       idea.videoLink = uploaded.webViewLink;
     }
